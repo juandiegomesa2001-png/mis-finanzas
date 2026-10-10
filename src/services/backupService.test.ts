@@ -98,6 +98,37 @@ describe('respaldo JSON', () => {
     expect((await db.accounts.get(account.id))?.name).toBe('Local')
   })
 
+
+  it('restaura una copia completa y elimina datos locales que no están en el respaldo', async () => {
+    const backedUp = await finance.createAccount({
+      id: toUuid('71000000-0000-4000-8000-000000000001'),
+      name: 'Cuenta del respaldo',
+      type: 'savings',
+      currency: toCurrency('COP'),
+      initialBalance: toMoneyAmount(10_000),
+      initialDate: toDomainDate('2026-01-01'),
+    })
+    const payload = await new BackupService(db).createBackup()
+
+    await db.accounts.put({ ...backedUp, name: 'Cuenta local modificada' })
+    await finance.createAccount({
+      id: toUuid('71000000-0000-4000-8000-000000000002'),
+      name: 'Solo local',
+      type: 'cash',
+      currency: toCurrency('COP'),
+      initialBalance: toMoneyAmount(5_000),
+      initialDate: toDomainDate('2026-01-01'),
+    })
+
+    await new BackupService(db).restore(payload, 'replace-all')
+
+    expect(await db.accounts.count()).toBe(1)
+    expect((await db.accounts.get(backedUp.id))?.name).toBe('Cuenta del respaldo')
+    expect(
+      await db.accounts.get(toUuid('71000000-0000-4000-8000-000000000002')),
+    ).toBeUndefined()
+  })
+
   it('rechaza referencias de tarjeta inválidas antes de escribir', async () => {
     const payload = await new BackupService(db).createBackup()
     const invalid = { ...payload, data: { ...payload.data, cardPayments: [{ id: '92000000-0000-4000-8000-000000000001', cardId: '92000000-0000-4000-8000-000000000002', type: 'refund', amount: 100, currency: 'COP', effectiveDate: '2026-01-01', status: 'confirmed', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', revision: 1 }] } }
