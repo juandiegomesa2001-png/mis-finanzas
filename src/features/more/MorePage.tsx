@@ -76,16 +76,15 @@ export function MorePage() {
       event.target.value = "";
     }
   }
-  async function restore(replace: boolean) {
+  async function restore(mode: "keep-local" | "replace-all") {
     if (!pending) return;
     setBusy(true);
     try {
-      await backupService.restore(
-        pending.payload,
-        replace ? "replace-local" : "keep-local",
-      );
+      await backupService.restore(pending.payload, mode);
       setSuccess(
-        `Restauración completada: ${pending.analysis.newRecords} nuevos, ${pending.analysis.identicalRecords} duplicados omitidos y ${pending.analysis.conflicts.length} conflictos ${replace ? "reemplazados" : "conservados localmente"}.`,
+        mode === "replace-all"
+          ? "Restauración completa finalizada. Los datos locales ahora coinciden con el respaldo."
+          : `Importación completada: ${pending.analysis.newRecords} nuevos, ${pending.analysis.identicalRecords} duplicados omitidos y ${pending.analysis.conflicts.length} conflictos conservados localmente.`,
       );
       setPending(undefined);
     } catch (caught) {
@@ -198,8 +197,8 @@ export function MorePage() {
         <h2>Respaldo y restauración</h2>
         <div className="backup-card">
           <p>
-            La restauración valida todo antes de escribir y nunca vacía la base
-            local.
+            El archivo se valida por completo antes de escribir. Puedes importar
+            sin sobrescribir o restaurar una copia completa.
           </p>
           <div className="card-actions">
             <button
@@ -238,25 +237,23 @@ export function MorePage() {
             <div className="card-actions">
               <button
                 className="button button-primary"
-                onClick={() => void restore(false)}
+                onClick={() => void restore("keep-local")}
               >
-                Restaurar y conservar locales
+                Importar y conservar locales
               </button>
-              {pending.analysis.conflicts.length ? (
-                <button
-                  className="button button-danger-ghost"
-                  onClick={() => {
-                    if (
-                      window.confirm(
-                        "¿Reemplazar los registros locales en conflicto? Esta decisión no se puede deshacer desde la aplicación.",
-                      )
+              <button
+                className="button button-danger-ghost"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      "¿Restaurar esta copia completa? Se eliminarán de este dispositivo todos los registros locales que no estén en el respaldo y los existentes serán reemplazados. La operación se ejecuta de forma atómica.",
                     )
-                      void restore(true);
-                  }}
-                >
-                  Reemplazar conflictos
-                </button>
-              ) : null}
+                  )
+                    void restore("replace-all");
+                }}
+              >
+                Restaurar copia completa
+              </button>
             </div>
           </div>
         ) : null}
