@@ -7,6 +7,7 @@ import { EmptyState, ErrorMessage, SuccessMessage } from '../../components/Feedb
 import { PageHeader } from '../../components/PageHeader'
 import { toMoneyAmount, toUuid, type Transaction } from '../../domain'
 import { financeService } from '../../services/financeService'
+import { useSubmissionGuard } from '../../hooks/useSubmissionGuard'
 import { formatMoney } from '../../utils/money'
 
 const TYPE_LABELS = {
@@ -42,6 +43,8 @@ export function MovementsPage() {
   const [categoryId, setCategoryId] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard()
+  const { submitting: voiding, run: runVoidAction } = useSubmissionGuard()
 
   const filtered = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase('es')
@@ -92,9 +95,10 @@ export function MovementsPage() {
   async function handleEdit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!editing) return
-    setError('')
-
-    try {
+    await runSubmission(async () => {
+      setError('')
+      setSuccess('')
+      try {
       await financeService.updateTransactionDetails(editing.id, editing.revision, {
         description: description || null,
         ...((editing.type === 'income' || editing.type === 'expense') && categoryId
@@ -103,9 +107,10 @@ export function MovementsPage() {
       })
       setEditing(undefined)
       setSuccess('Movimiento actualizado. Su revisión fue incrementada.')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No fue posible editar el movimiento.')
-    }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'No fue posible editar el movimiento.')
+      }
+    })
   }
 
   async function handleVoid(transaction: Transaction) {
@@ -114,19 +119,20 @@ export function MovementsPage() {
     )
 
     if (!reason) return
-    setError('')
-    setSuccess('')
-
-    try {
+    await runVoidAction(async () => {
+      setError('')
+      setSuccess('')
+      try {
       await financeService.voidTransaction(
         transaction.id,
         transaction.revision,
         reason,
       )
       setSuccess('Movimiento anulado. El registro y su trazabilidad se conservaron.')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No fue posible anular el movimiento.')
-    }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'No fue posible anular el movimiento.')
+      }
+    })
   }
 
   return (
@@ -182,7 +188,7 @@ export function MovementsPage() {
             {editing.type === 'income' || editing.type === 'expense' ? (
               <label>Categoría<select required value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>{data.categories.filter((category) => category.kind === editing.type && category.status === 'active').map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></label>
             ) : null}
-            <button className="button button-primary" type="submit">Guardar detalles</button>
+            <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Guardando...' : 'Guardar detalles'}</button>
           </form>
         </section>
       ) : null}
@@ -215,8 +221,8 @@ export function MovementsPage() {
                         <strong>{sign}{formatMoney(toMoneyAmount(transaction.amount), transaction.currency)}</strong>
                         {transaction.status !== 'voided' ? (
                           <div className="inline-actions">
-                            <button type="button" onClick={() => openEdit(transaction)} aria-label="Editar movimiento"><Pencil aria-hidden="true" size={15} /></button>
-                            <button type="button" onClick={() => void handleVoid(transaction)} aria-label="Anular movimiento"><Ban aria-hidden="true" size={15} /></button>
+                            <button type="button" disabled={voiding} onClick={() => openEdit(transaction)} aria-label="Editar movimiento"><Pencil aria-hidden="true" size={15} /></button>
+                            <button type="button" disabled={voiding} onClick={() => void handleVoid(transaction)} aria-label="Anular movimiento"><Ban aria-hidden="true" size={15} /></button>
                           </div>
                         ) : null}
                       </div>

@@ -14,13 +14,12 @@ import {
   type UUID,
 } from "../../domain";
 import { obligationService } from "../../services/obligationService";
+import { useSubmissionGuard } from "../../hooks/useSubmissionGuard";
 import { todayDomainDate } from "../../utils/dates";
 import { formatMoney, parsePositiveMoneyAmount } from "../../utils/money";
 
-export function ObligationsPage() {
-  const { data } = useFinanceData();
-  const currency = data.settings?.currency;
-  const [form, setForm] = useState({
+function emptyObligationForm() {
+  return {
     name: "",
     kind: "fixed_expense" as ObligationKind,
     categoryId: "",
@@ -28,16 +27,25 @@ export function ObligationsPage() {
     frequency: "monthly" as ObligationFrequency,
     dueDate: todayDomainDate() as string,
     accountId: "",
-  });
+  };
+}
+
+export function ObligationsPage() {
+  const { data } = useFinanceData();
+  const currency = data.settings?.currency;
+  const [form, setForm] = useState(emptyObligationForm);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard();
   const categories = data.categories.filter(
     (item) => item.kind === "expense" && item.status === "active",
   );
   const accounts = data.accounts.filter((item) => item.status === "active");
   async function submit(event: FormEvent) {
     event.preventDefault();
+    await runSubmission(async () => {
     setError("");
+    setSuccess("");
     try {
       if (!currency) throw new Error("Falta configurar la moneda.");
       await obligationService.createObligation({
@@ -51,12 +59,14 @@ export function ObligationsPage() {
         ...(form.accountId ? { paymentAccountId: form.accountId as UUID } : {}),
       });
       await obligationService.refreshReminders();
+      setForm(emptyObligationForm());
       setSuccess("Obligación guardada.");
     } catch (caught) {
       setError(
         caught instanceof Error ? caught.message : "No fue posible guardar.",
       );
     }
+    });
   }
   async function pay(
     id: UUID,
@@ -143,6 +153,7 @@ export function ObligationsPage() {
         className="panel stack-form"
         onSubmit={(event) => void submit(event)}
       >
+        <fieldset className="form-fieldset" disabled={saving}>
         <label>
           Nombre
           <input
@@ -234,6 +245,7 @@ export function ObligationsPage() {
           </select>
         </label>
         <button className="button button-primary">Guardar obligación</button>
+        </fieldset>
       </form>
       <section className="section-block">
         {data.recurringObligations.length === 0 ? (

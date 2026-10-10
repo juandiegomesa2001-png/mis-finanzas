@@ -7,6 +7,7 @@ import { EmptyState, ErrorMessage, SuccessMessage } from '../../components/Feedb
 import { PageHeader } from '../../components/PageHeader'
 import { toDomainDate, toUuid } from '../../domain'
 import { financeService } from '../../services/financeService'
+import { useSubmissionGuard } from '../../hooks/useSubmissionGuard'
 import { todayDomainDate } from '../../utils/dates'
 import { parsePositiveMoneyAmount } from '../../utils/money'
 
@@ -20,7 +21,7 @@ export function TransferPage() {
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard()
   const sourceAccount = accounts.find(({ id }) => id === sourceId)
   const compatibleDestinations = accounts.filter(
     (account) => account.id !== sourceId && account.currency === sourceAccount?.currency,
@@ -28,11 +29,10 @@ export function TransferPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError('')
-    setSuccess('')
-    setSaving(true)
-
-    try {
+    await runSubmission(async () => {
+      setError('')
+      setSuccess('')
+      try {
       if (!sourceAccount) {
         throw new Error('Selecciona una cuenta de origen.')
       }
@@ -47,12 +47,14 @@ export function TransferPage() {
       })
       setAmount('')
       setDescription('')
+      setSourceId(accounts[0]?.id ?? '')
+      setDestinationId(accounts[1]?.id ?? '')
+      setDate(todayDomainDate())
       setSuccess('Transferencia guardada sin contabilizarla como ingreso o gasto.')
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'No fue posible guardar la transferencia.')
-    } finally {
-      setSaving(false)
-    }
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : 'No fue posible guardar la transferencia.')
+      }
+    })
   }
 
   if (accounts.length < 2) {

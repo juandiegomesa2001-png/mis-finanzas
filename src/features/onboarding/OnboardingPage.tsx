@@ -11,6 +11,7 @@ import {
   type IncomeFrequency,
 } from '../../domain'
 import { financeService } from '../../services/financeService'
+import { useSubmissionGuard } from '../../hooks/useSubmissionGuard'
 import { todayDomainDate } from '../../utils/dates'
 import {
   parseMoneyAmount,
@@ -32,12 +33,12 @@ export function OnboardingPage() {
     useState<IncomeFrequency>('monthly')
   const [incomeDate, setIncomeDate] = useState<string>(todayDomainDate())
   const [error, setError] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard()
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    await runSubmission(async () => {
     setError('')
-    setSaving(true)
 
     try {
       const selectedCurrency = toCurrency(currency)
@@ -71,9 +72,8 @@ export function OnboardingPage() {
           ? caught.message
           : 'No fue posible guardar la configuración.',
       )
-    } finally {
-      setSaving(false)
     }
+    })
   }
 
   async function handleSkip() {
@@ -82,10 +82,9 @@ export function OnboardingPage() {
       return
     }
 
-    setError('')
-    setSaving(true)
-
-    try {
+    await runSubmission(async () => {
+      setError('')
+      try {
       await financeService.skipOnboarding(toCurrency(currency))
       navigate('/')
     } catch (caught) {
@@ -94,9 +93,8 @@ export function OnboardingPage() {
           ? caught.message
           : 'No fue posible omitir la configuración.',
       )
-    } finally {
-      setSaving(false)
     }
+    })
   }
 
   return (

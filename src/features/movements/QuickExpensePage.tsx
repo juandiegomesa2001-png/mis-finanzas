@@ -7,6 +7,7 @@ import { EmptyState, ErrorMessage, SuccessMessage } from '../../components/Feedb
 import { PageHeader } from '../../components/PageHeader'
 import { toDomainDate, toUuid } from '../../domain'
 import { financeService } from '../../services/financeService'
+import { useSubmissionGuard } from '../../hooks/useSubmissionGuard'
 import { todayDomainDate } from '../../utils/dates'
 import { parsePositiveMoneyAmount } from '../../utils/money'
 
@@ -26,15 +27,14 @@ export function QuickExpensePage() {
   const [description, setDescription] = useState('')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard()
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError('')
-    setSuccess('')
-    setSaving(true)
-
-    try {
+    await runSubmission(async () => {
+      setError('')
+      setSuccess('')
+      try {
       const account = accounts.find(({ id }) => id === accountId)
 
       if (!account) {
@@ -51,16 +51,18 @@ export function QuickExpensePage() {
       })
       setAmount('')
       setDescription('')
+      setCategoryId(categories[0]?.id ?? '')
+      setAccountId(initialAccount)
+      setDate(todayDomainDate())
       setSuccess('Gasto guardado. El saldo ya fue actualizado.')
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'No fue posible guardar el gasto.',
-      )
-    } finally {
-      setSaving(false)
-    }
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'No fue posible guardar el gasto.',
+        )
+      }
+    })
   }
 
   if (accounts.length === 0) {

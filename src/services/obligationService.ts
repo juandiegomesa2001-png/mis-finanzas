@@ -84,6 +84,15 @@ export interface CardEntryInput {
   readonly description?: string;
 }
 
+export interface CardRemovalPolicy {
+  readonly canDelete: boolean;
+  readonly hasFinancialBalance: boolean;
+  readonly relatedPurchases: number;
+  readonly relatedPayments: number;
+  readonly relatedStatements: number;
+  readonly relatedTransactions: number;
+}
+
 export class ObligationService {
   private readonly db: FinanceDatabase;
   constructor(db: FinanceDatabase) {
@@ -146,6 +155,86 @@ export class ObligationService {
       };
       await this.db.creditCards.put(next);
       return next;
+    });
+  }
+
+  async inspectCardRemoval(id: UUID): Promise<CardRemovalPolicy> {
+    const card = await this.db.creditCards.get(id);
+    if (!card) throw new Error("La tarjeta no existe.");
+    const [relatedPurchases, relatedPayments, relatedStatements, relatedTransactions] =
+      await Promise.all([
+        this.db.installmentPurchases.where("cardId").equals(id).count(),
+        this.db.cardPayments.where("cardId").equals(id).count(),
+        this.db.cardStatements.where("cardId").equals(id).count(),
+        this.db.transactions.where("creditCardId").equals(id).count(),
+      ]);
+    const hasFinancialBalance =
+      card.openingDebt !== 0 ||
+      card.statementBalance !== 0 ||
+      card.unbilledBalance !== 0;
+    return {
+      canDelete:
+        !hasFinancialBalance &&
+        relatedPurchases +
+          relatedPayments +
+          relatedStatements +
+          relatedTransactions ===
+        0,
+      hasFinancialBalance,
+      relatedPurchases,
+      relatedPayments,
+      relatedStatements,
+      relatedTransactions,
+    };
+  }
+
+  async deleteUnusedCard(id: UUID, expectedRevision: Revision): Promise<void> {
+    await this.db.transaction(
+      "rw",
+      [
+        this.db.creditCards,
+        this.db.installmentPurchases,
+        this.db.cardPayments,
+        this.db.cardStatements,
+        this.db.transactions,
+        this.db.reminders,
+      ],
+      async () => {
+        const card = await this.db.creditCards.get(id);
+        if (!card) throw new Error("La tarjeta no existe.");
+        checkRevision(card.revision, expectedRevision);
+        const policy = await this.inspectCardRemoval(id);
+        if (!policy.canDelete)
+          throw new Error(
+            "La tarjeta tiene historial financiero y no puede eliminarse. Arch\u00edvala para conservar la trazabilidad.",
+          );
+        const reminders = await this.db.reminders.toArray();
+        await this.db.reminders.bulkDelete(
+          reminders
+            .filter((item) => item.sourceKey.includes(`:${id}:`))
+            .map((item) => item.id),
+        );
+        await this.db.creditCards.delete(id);
+      },
+    );
+  }
+
+  async archiveCard(
+    id: UUID,
+    expectedRevision: Revision,
+  ): Promise<CreditCard> {
+    return this.db.transaction("rw", this.db.creditCards, async () => {
+      const card = await this.db.creditCards.get(id);
+      if (!card) throw new Error("La tarjeta no existe.");
+      checkRevision(card.revision, expectedRevision);
+      const archived: CreditCard = {
+        ...card,
+        status: "archived",
+        updatedAt: currentDomainDateTime(),
+        revision: incrementRevision(card.revision),
+      };
+      await this.db.creditCards.put(archived);
+      return archived;
     });
   }
 

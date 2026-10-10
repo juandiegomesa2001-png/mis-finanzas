@@ -21,6 +21,7 @@ import {
 import { financeService } from "../../services/financeService";
 import { formatMoney } from "../../utils/money";
 import { toMoneyAmount } from "../../domain";
+import { useSubmissionGuard } from "../../hooks/useSubmissionGuard";
 
 export function MorePage() {
   const { data } = useFinanceData();
@@ -31,11 +32,12 @@ export function MorePage() {
     payload: unknown;
     analysis: RestoreAnalysis;
   }>();
-  const [busy, setBusy] = useState(false);
+  const { submitting: busy, run: runBackupAction } = useSubmissionGuard();
   async function exportBackup() {
-    setBusy(true);
-    setError("");
-    try {
+    await runBackupAction(async () => {
+      setError("");
+      setSuccess("");
+      try {
       const backup = await backupService.createBackup();
       const url = URL.createObjectURL(
         new Blob([JSON.stringify(backup, null, 2)], {
@@ -52,9 +54,8 @@ export function MorePage() {
       setError(
         caught instanceof Error ? caught.message : "No fue posible exportar.",
       );
-    } finally {
-      setBusy(false);
-    }
+      }
+    });
   }
   async function selectBackup(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -78,8 +79,10 @@ export function MorePage() {
   }
   async function restore(mode: "keep-local" | "replace-all") {
     if (!pending) return;
-    setBusy(true);
-    try {
+    await runBackupAction(async () => {
+      setError("");
+      setSuccess("");
+      try {
       await backupService.restore(pending.payload, mode);
       setSuccess(
         mode === "replace-all"
@@ -91,9 +94,8 @@ export function MorePage() {
       setError(
         caught instanceof Error ? caught.message : "No fue posible restaurar.",
       );
-    } finally {
-      setBusy(false);
-    }
+      }
+    });
   }
   async function toggleTheme() {
     try {
@@ -237,12 +239,14 @@ export function MorePage() {
             <div className="card-actions">
               <button
                 className="button button-primary"
+                disabled={busy}
                 onClick={() => void restore("keep-local")}
               >
                 Importar y conservar locales
               </button>
               <button
                 className="button button-danger-ghost"
+                disabled={busy}
                 onClick={() => {
                   if (
                     window.confirm(

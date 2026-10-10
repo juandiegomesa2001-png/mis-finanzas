@@ -32,6 +32,7 @@ import {
   type DebtStrategy,
 } from "../../domain";
 import { obligationService } from "../../services/obligationService";
+import { useSubmissionGuard } from "../../hooks/useSubmissionGuard";
 import { currentMonthRange, todayDomainDate } from "../../utils/dates";
 import {
   formatMoney,
@@ -39,23 +40,26 @@ import {
   parsePositiveMoneyAmount,
 } from "../../utils/money";
 
+const EMPTY_GOAL = {
+  name: "",
+  target: "",
+  current: "0",
+  date: "",
+  priority: "medium",
+  contribution: "0",
+  mode: "balanced",
+};
+
 export function PlanPage() {
   const { data } = useFinanceData();
   const currency = data.settings?.currency;
   const [strategy, setStrategy] = useState<DebtStrategy>("balanced");
   const [capacity, setCapacity] = useState("0");
   const [reserve, setReserve] = useState("0");
-  const [goal, setGoal] = useState({
-    name: "",
-    target: "",
-    current: "0",
-    date: "",
-    priority: "medium",
-    contribution: "0",
-    mode: "balanced",
-  });
+  const [goal, setGoal] = useState(EMPTY_GOAL);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const { submitting: savingGoal, run: runGoalSubmission } = useSubmissionGuard();
   const analysis = useMemo(() => {
     if (!currency) return undefined;
     const accounts = data.accounts.filter(
@@ -134,9 +138,11 @@ export function PlanPage() {
   );
   async function saveGoal(event: FormEvent) {
     event.preventDefault();
-    setError("");
-    if (!currency) return;
-    try {
+    await runGoalSubmission(async () => {
+      setError("");
+      setMessage("");
+      if (!currency) return;
+      try {
       await obligationService.createSavingsGoal({
         name: goal.name,
         currency,
@@ -147,6 +153,7 @@ export function PlanPage() {
         plannedMonthlyContribution: parseMoneyAmount(goal.contribution),
         mode: goal.mode as "flexible" | "balanced" | "accelerated",
       });
+      setGoal({ ...EMPTY_GOAL });
       setMessage("Meta guardada y plan recalculado.");
     } catch (caught) {
       setError(
@@ -154,7 +161,8 @@ export function PlanPage() {
           ? caught.message
           : "No fue posible guardar la meta.",
       );
-    }
+      }
+    });
   }
   async function contribute(
     goalId: Parameters<typeof obligationService.contributeToGoal>[0],
@@ -367,7 +375,9 @@ export function PlanPage() {
               <option value="accelerated">Acelerado</option>
             </select>
           </label>
-          <button className="button button-primary">Guardar meta</button>
+          <button className="button button-primary" disabled={savingGoal}>
+            {savingGoal ? "Guardando..." : "Guardar meta"}
+          </button>
         </form>
         {data.savingsGoals.length === 0 ? (
           <EmptyState

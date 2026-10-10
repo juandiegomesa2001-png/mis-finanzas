@@ -74,6 +74,11 @@
 .panel, .form-card, .filter-panel, .backup-card { padding: 18px; background: rgba(21, 30, 48, 0.86); border: 1px solid var(--border); border-radius: 22px; }
 .form-panel { margin-bottom: 20px; }
 .stack-form { display: grid; gap: 15px; }
+.form-fieldset { min-width: 0; padding: 0; display: grid; gap: 15px; border: 0; }
+.form-launch { margin: 14px 0 18px; display: flex; justify-content: flex-end; }
+.form-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.form-panel-heading h2 { margin: 0; }
+.form-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 label { display: grid; gap: 7px; color: #cbd5e1; font-size: 0.8rem; font-weight: 700; }
 input, select, textarea { width: 100%; min-height: 48px; padding: 0 13px; color: var(--text); background: #0d1626; border: 1px solid rgba(148, 163, 184, 0.2); border-radius: 13px; }
 input::placeholder { color: #64748b; }

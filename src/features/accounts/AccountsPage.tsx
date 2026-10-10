@@ -11,6 +11,7 @@ import {
   type AccountType,
 } from '../../domain'
 import { financeService } from '../../services/financeService'
+import { useSubmissionGuard } from '../../hooks/useSubmissionGuard'
 import { todayDomainDate } from '../../utils/dates'
 import { formatMoney, parseMoneyAmount } from '../../utils/money'
 
@@ -56,7 +57,7 @@ export function AccountsPage() {
   const [form, setForm] = useState<AccountFormState>(EMPTY_FORM)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [saving, setSaving] = useState(false)
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard()
   const settingsCurrency = data.settings?.currency
 
   function openCreate() {
@@ -77,11 +78,10 @@ export function AccountsPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setError('')
-    setSuccess('')
-    setSaving(true)
-
-    try {
+    await runSubmission(async () => {
+      setError('')
+      setSuccess('')
+      try {
       if (!settingsCurrency) {
         throw new Error('Falta configurar la moneda principal.')
       }
@@ -109,15 +109,15 @@ export function AccountsPage() {
 
       setShowForm(false)
       setEditing(undefined)
-    } catch (caught) {
-      setError(
-        caught instanceof Error
-          ? caught.message
-          : 'No fue posible guardar la cuenta.',
-      )
-    } finally {
-      setSaving(false)
-    }
+      setForm({ ...EMPTY_FORM, initialDate: todayDomainDate() })
+      } catch (caught) {
+        setError(
+          caught instanceof Error
+            ? caught.message
+            : 'No fue posible guardar la cuenta.',
+        )
+      }
+    })
   }
 
   async function handleArchive(account: Account) {

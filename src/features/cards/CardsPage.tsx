@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { CreditCard as CardIcon, Plus } from "lucide-react";
+import { Archive, CreditCard as CardIcon, Plus, Trash2, X } from "lucide-react";
 
 import { useFinanceData } from "../../app/FinanceDataContext";
 import {
@@ -17,61 +17,59 @@ import {
   type UUID,
 } from "../../domain";
 import { obligationService } from "../../services/obligationService";
+import { useSubmissionGuard } from "../../hooks/useSubmissionGuard";
 import { todayDomainDate } from "../../utils/dates";
 import {
   formatMoney,
   parseMoneyAmount,
   parsePositiveMoneyAmount,
 } from "../../utils/money";
+import {
+  createEmptyCardForm,
+  createEmptyPaymentForm,
+  createEmptyPurchaseForm,
+  resetCardForm,
+  type CardFormMode,
+} from "./cardFormState";
 
 export function CardsPage() {
   const { data } = useFinanceData();
   const currency = data.settings?.currency;
-  const [mode, setMode] = useState<"card" | "purchase" | "payment">("card");
+  const [mode, setMode] = useState<CardFormMode>("card");
+  const [showForm, setShowForm] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [cardForm, setCardForm] = useState({
-    bank: "",
-    name: "",
-    brand: "visa",
-    lastFour: "",
-    limit: "",
-    debt: "0",
-    rate: "",
-    closingDay: "15",
-    dueDay: "5",
-    minimum: "0",
-    total: "0",
-    accountId: "",
-  });
-  const [purchase, setPurchase] = useState({
-    cardId: "",
-    categoryId: "",
-    description: "",
-    date: todayDomainDate() as string,
-    amount: "",
-    installments: "1",
-    rate: "",
-  });
-  const [payment, setPayment] = useState({
-    cardId: "",
-    type: "extra_payment" as CardEntryType,
-    amount: "",
-    date: todayDomainDate() as string,
-    accountId: "",
-    categoryId: "",
-    description: "",
-  });
+  const [cardForm, setCardForm] = useState(createEmptyCardForm);
+  const [purchase, setPurchase] = useState(createEmptyPurchaseForm);
+  const [payment, setPayment] = useState(createEmptyPaymentForm);
+  const { submitting: saving, run: runSubmission } = useSubmissionGuard();
+  const { submitting: changingCard, run: runCardAction } = useSubmissionGuard();
   const expenseCategories = data.categories.filter(
     (item) => item.kind === "expense" && item.status === "active",
   );
   const accounts = data.accounts.filter((item) => item.status === "active");
+  const activeCards = data.creditCards.filter((item) => item.status === "active");
+
+  function resetAndCloseForm() {
+    setCardForm(resetCardForm("card"));
+    setPurchase(resetCardForm("purchase"));
+    setPayment(resetCardForm("payment"));
+    setShowForm(false);
+  }
+
+  function selectMode(nextMode: CardFormMode) {
+    resetAndCloseForm();
+    setMode(nextMode);
+    setError("");
+    setSuccess("");
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    setError("");
-    setSuccess("");
-    try {
+    await runSubmission(async () => {
+      setError("");
+      setSuccess("");
+      try {
       if (!currency) throw new Error("Falta configurar la moneda.");
       if (mode === "card")
         await obligationService.createCard({
@@ -126,6 +124,7 @@ export function CardsPage() {
           ...(payment.description ? { description: payment.description } : {}),
         });
       await obligationService.refreshReminders();
+      resetAndCloseForm();
       setSuccess(
         mode === "card"
           ? "Tarjeta guardada."
@@ -133,11 +132,33 @@ export function CardsPage() {
             ? "Compra y cronograma guardados sin duplicar el gasto."
             : "Operación de tarjeta guardada.",
       );
-    } catch (caught) {
-      setError(
-        caught instanceof Error ? caught.message : "No fue posible guardar.",
-      );
-    }
+      } catch (caught) {
+        setError(
+          caught instanceof Error ? caught.message : "No fue posible guardar.",
+        );
+      }
+    });
+  }
+
+  async function removeOrArchive(card: (typeof data.creditCards)[number]) {
+    await runCardAction(async () => {
+      setError("");
+      setSuccess("");
+      try {
+        const policy = await obligationService.inspectCardRemoval(card.id);
+        if (policy.canDelete) {
+          if (!window.confirm("Esta tarjeta no tiene historial. \u00bfEliminarla definitivamente?")) return;
+          await obligationService.deleteUnusedCard(card.id, card.revision);
+          setSuccess("Tarjeta eliminada.");
+          return;
+        }
+        if (!window.confirm("Esta tarjeta tiene historial financiero y no se puede eliminar. \u00bfArchivarla conservando compras, pagos y movimientos?")) return;
+        await obligationService.archiveCard(card.id, card.revision);
+        setSuccess("Tarjeta archivada. Su historial permanece intacto.");
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : "No fue posible actualizar la tarjeta.");
+      }
+    });
   }
 
   async function reconcile(card: (typeof data.creditCards)[number]) {
@@ -200,30 +221,68 @@ export function CardsPage() {
       <div className="segmented" role="tablist">
         <button
           type="button"
-          onClick={() => setMode("card")}
+          onClick={() => selectMode("card")}
           className={mode === "card" ? "active" : ""}
         >
           Tarjeta
         </button>
         <button
           type="button"
-          onClick={() => setMode("purchase")}
+          onClick={() => selectMode("purchase")}
           className={mode === "purchase" ? "active" : ""}
         >
           Compra
         </button>
         <button
           type="button"
-          onClick={() => setMode("payment")}
+          onClick={() => selectMode("payment")}
           className={mode === "payment" ? "active" : ""}
         >
           Pago / ajuste
         </button>
       </div>
+      {!showForm ? (
+        <div className="form-launch">
+          <button
+            className="button button-primary"
+            type="button"
+            onClick={() => {
+              resetAndCloseForm();
+              setShowForm(true);
+            }}
+          >
+            <Plus size={17} />
+            {mode === "card"
+              ? "A\u00f1adir tarjeta"
+              : mode === "purchase"
+                ? "Registrar compra"
+                : "Registrar pago o ajuste"}
+          </button>
+        </div>
+      ) : null}
+      {showForm ? (
       <form
         className="panel stack-form"
         onSubmit={(event) => void submit(event)}
       >
+        <div className="form-panel-heading">
+          <h2>
+            {mode === "card"
+              ? "Nueva tarjeta"
+              : mode === "purchase"
+                ? "Nueva compra"
+                : "Nuevo pago o ajuste"}
+          </h2>
+          <button
+            aria-label="Cancelar y cerrar formulario"
+            className="icon-button"
+            type="button"
+            onClick={resetAndCloseForm}
+            disabled={saving}
+          >
+            <X size={18} />
+          </button>
+        </div>
         {mode === "card" ? (
           <>
             <label>
@@ -367,7 +426,7 @@ export function CardsPage() {
                 }
               >
                 <option value="">Selecciona</option>
-                {data.creditCards.map((item) => (
+                {activeCards.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
@@ -464,7 +523,7 @@ export function CardsPage() {
                 }
               >
                 <option value="">Selecciona</option>
-                {data.creditCards.map((item) => (
+                {activeCards.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
                   </option>
@@ -562,13 +621,19 @@ export function CardsPage() {
             ) : null}
           </>
         ) : null}
-        <button className="button button-primary" type="submit">
-          <Plus size={17} /> Guardar
-        </button>
+        <div className="form-actions">
+          <button className="button button-ghost" type="button" onClick={resetAndCloseForm} disabled={saving}>
+            Cancelar
+          </button>
+          <button className="button button-primary" type="submit" disabled={saving}>
+            <Plus size={17} /> {saving ? "Guardando..." : "Guardar"}
+          </button>
+        </div>
       </form>
+      ) : null}
       <section className="section-block">
         <div className="section-heading">
-          <h2>Tarjetas activas</h2>
+          <h2>Tarjetas</h2>
         </div>
         {data.creditCards.length === 0 ? (
           <EmptyState
@@ -583,6 +648,16 @@ export function CardsPage() {
                 data.installmentPurchases,
                 data.cardPayments,
               );
+              const hasHistory =
+                card.openingDebt !== 0 ||
+                card.statementBalance !== 0 ||
+                card.unbilledBalance !== 0 ||
+                data.installmentPurchases.some((item) => item.cardId === card.id) ||
+                data.cardPayments.some((item) => item.cardId === card.id) ||
+                data.cardStatements.some((item) => item.cardId === card.id) ||
+                data.transactions.some(
+                  (item) => "creditCardId" in item && item.creditCardId === card.id,
+                );
               return (
                 <article className="account-card" key={card.id}>
                   <div className="account-card-top">
@@ -590,7 +665,7 @@ export function CardsPage() {
                       <CardIcon size={19} />
                     </span>
                     <span className="status-pill">
-                      {card.brand.toUpperCase()}
+                      {card.status === "archived" ? "ARCHIVADA" : card.brand.toUpperCase()}
                     </span>
                   </div>
                   <p>
@@ -611,13 +686,29 @@ export function CardsPage() {
                     {formatMoney(card.statementBalance, card.currency)} · sin
                     facturar {formatMoney(card.unbilledBalance, card.currency)}
                   </p>
-                  <button
-                    className="button button-secondary button-compact"
-                    type="button"
-                    onClick={() => void reconcile(card)}
-                  >
-                    Conciliar extracto
-                  </button>
+                  <div className="form-actions">
+                    {card.status === "active" ? (
+                      <button
+                        className="button button-secondary button-compact"
+                        type="button"
+                        onClick={() => void reconcile(card)}
+                        disabled={changingCard}
+                      >
+                        Conciliar extracto
+                      </button>
+                    ) : null}
+                    {card.status === "active" ? (
+                      <button
+                        className="button button-ghost button-compact"
+                        type="button"
+                        onClick={() => void removeOrArchive(card)}
+                        disabled={changingCard}
+                      >
+                        {hasHistory ? <Archive size={16} /> : <Trash2 size={16} />}
+                        {hasHistory ? "Archivar" : "Eliminar"}
+                      </button>
+                    ) : null}
+                  </div>
                 </article>
               );
             })}

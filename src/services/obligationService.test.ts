@@ -122,6 +122,8 @@ describe("persistencia de obligaciones", () => {
     await finance.voidTransaction(movement.id, movement.revision, "Devolución total");
     expect((await db.installmentPurchases.get(purchase.id))?.status).toBe("voided");
     expect(await db.installmentPurchases.count()).toBe(1);
+    expect(await db.transactions.count()).toBe(1);
+    expect((await db.transactions.get(movement.id))?.status).toBe("voided");
     expect(await service.cardDebt(cardId)).toBe(0);
     expect(
       calculateExpenseTotal(
@@ -131,6 +133,40 @@ describe("persistencia de obligaciones", () => {
       ),
     ).toBe(0);
   });
+  it("elimina fisicamente una tarjeta sin historial", async () => {
+    const card = await db.creditCards.get(cardId);
+    if (!card) throw new Error("Falta tarjeta");
+    expect((await service.inspectCardRemoval(cardId)).canDelete).toBe(true);
+
+    await service.deleteUnusedCard(cardId, card.revision);
+
+    expect(await db.creditCards.get(cardId)).toBeUndefined();
+  });
+
+  it("impide eliminar una tarjeta con historial y permite archivarla", async () => {
+    const category = await expenseCategory();
+    await service.createPurchase({
+      cardId,
+      categoryId: category.id,
+      description: "Compra conservada",
+      purchaseDate: date,
+      amount: toPositiveMoneyAmount(100_000),
+      installmentCount: 1,
+    });
+    const card = await db.creditCards.get(cardId);
+    if (!card) throw new Error("Falta tarjeta");
+    expect((await service.inspectCardRemoval(cardId)).canDelete).toBe(false);
+
+    await expect(service.deleteUnusedCard(cardId, card.revision)).rejects.toThrow(
+      "no puede eliminarse",
+    );
+    const archived = await service.archiveCard(cardId, card.revision);
+
+    expect(archived.status).toBe("archived");
+    expect(await db.installmentPurchases.count()).toBe(1);
+    expect(await db.transactions.count()).toBe(1);
+  });
+
   it("un abono reduce efectivo y deuda sin crear gasto de consumo", async () => {
     await db.creditCards.update(cardId, {
       openingDebt: toMoneyAmount(200_000),
