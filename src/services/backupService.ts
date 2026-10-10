@@ -434,10 +434,20 @@ export class BackupService {
   }
   async restore(
     payload: unknown,
-    conflictPolicy: "keep-local" | "replace-local" = "keep-local",
+    conflictPolicy: "keep-local" | "replace-local" | "replace-all" = "keep-local",
   ): Promise<RestoreAnalysis> {
     const analysis = await this.analyzeRestore(payload);
     await this.db.transaction("rw", this.db.tables, async () => {
+      if (conflictPolicy === "replace-all") {
+        for (const name of tableNames) {
+          const table = this.db.table(name);
+          await table.clear();
+          const records = analysis.backup.data[name];
+          if (records.length > 0) await table.bulkAdd([...records]);
+        }
+        return;
+      }
+
       for (const name of tableNames)
         for (const record of analysis.backup.data[name]) {
           const table = this.db.table(name);
